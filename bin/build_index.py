@@ -29,10 +29,39 @@ h1 { font-size: 20px; margin: 0 0 4px 0; }
 .hash { color: #6b6f76; font-size: 11px; font-family: ui-monospace, monospace; margin-bottom: 8px; }
 .ocr { background: #1a1c20; border: 1px solid #303338; border-radius: 4px; padding: 8px 10px; font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; max-height: 160px; overflow-y: auto; color: #c7cad0; }
 .ocr.empty { color: #5c6067; font-style: italic; }
+.prov { display: flex; flex-wrap: wrap; gap: 6px 18px; background: #24262b; border: 1px solid #34363b; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 12px; }
+.prov-row { display: flex; gap: 6px; }
+.prov-k { color: #9aa0a6; }
+.prov-v { color: #cfd2d6; font-family: ui-monospace, monospace; }
 """
 
 
-def render(session_name: str, manifest: list) -> str:
+def render_provenance(meta: dict, frame_count: int) -> str:
+    """Render a small provenance header block from a session.json dict.
+    Never raises -- callers only invoke this once meta is known to be a dict."""
+
+    def esc(value) -> str:
+        if value in (None, ""):
+            return "&mdash;"
+        return html.escape(str(value))
+
+    fields = [
+        ("Created", meta.get("created_utc")),
+        ("Host", meta.get("host")),
+        ("QEMU", meta.get("qemu_version")),
+        ("Git rev", meta.get("git_rev")),
+        ("Note", meta.get("note")),
+        ("Frames", frame_count),
+    ]
+    rows = "".join(
+        f'<div class="prov-row"><span class="prov-k">{esc(label)}</span>'
+        f'<span class="prov-v">{esc(value)}</span></div>'
+        for label, value in fields
+    )
+    return f'<div class="prov">{rows}</div>'
+
+
+def render(session_name: str, manifest: list, session_meta: "dict | None" = None) -> str:
     rows = []
     for entry in manifest:
         badge = (
@@ -60,6 +89,7 @@ def render(session_name: str, manifest: list) -> str:
         )
 
     changed_count = sum(1 for e in manifest if e["changed"])
+    provenance_html = render_provenance(session_meta, len(manifest)) if session_meta else ""
     return f"""<!doctype html>
 <html>
 <head>
@@ -70,6 +100,7 @@ def render(session_name: str, manifest: list) -> str:
 <body>
   <h1>Session: {html.escape(session_name)}</h1>
   <div class="sub">{len(manifest)} frames captured, {changed_count} marked changed (dedup collapses the rest)</div>
+  {provenance_html}
   {''.join(rows)}
 </body>
 </html>
@@ -88,8 +119,17 @@ def main():
         sys.exit(1)
 
     manifest = json.loads(manifest_path.read_text())
+
+    session_meta = None
+    session_meta_path = session_dir / "session.json"
+    if session_meta_path.is_file():
+        try:
+            session_meta = json.loads(session_meta_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            session_meta = None
+
     index_path = session_dir / "analysis" / "index.html"
-    index_path.write_text(render(session_dir.name, manifest))
+    index_path.write_text(render(session_dir.name, manifest, session_meta))
     print(f"wrote {index_path}")
 
 
