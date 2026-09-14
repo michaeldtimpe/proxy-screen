@@ -17,6 +17,18 @@
 #   ACPI_BATTERY     if set (non-empty), add -acpitable file=<proj>/acpi/battery.aml
 #   VARS             per-VM writable EDK2 varstore (default vm/<disk-basename>-vars.fd)
 #   EXTRA_ARGS       extra raw args appended to the qemu command line
+#   PCAP             if set, dump all guest NIC traffic to this host pcap file
+#                    (via -object filter-dump on netdev net0; invisible to guest)
+#   EPHEMERAL        if set (1), boot a disposable qcow2 overlay of a golden/base
+#                    image; all guest writes are discarded when qemu exits
+#   GOLDEN           backing image for EPHEMERAL (default vm/golden.qcow2 if it
+#                    exists, else DISK)
+#   INGRESS_ISO      if set, attach this ISO as a removable read-only USB mass-
+#                    storage device (a "sample delivery" vector)
+#   LOWVIRTIO        EXPERIMENTAL: if set (1), shrink the virtio (1af4) surface —
+#                    NIC virtio-net-pci -> e1000e, disk virtio-blk-pci -> nvme.
+#                    May need guest driver support and may change the boot device
+#                    path; validate that the guest still boots before relying on it.
 #
 set -euo pipefail
 
@@ -34,6 +46,11 @@ SERIAL="${SERIAL:-stdio}"
 ACPI_BATTERY="${ACPI_BATTERY:-}"
 VARS="${VARS:-}"
 EXTRA_ARGS="${EXTRA_ARGS:-}"
+# Opt-in analysis features (each a no-op when unset).
+PCAP="${PCAP:-}"
+EPHEMERAL="${EPHEMERAL:-}"
+INGRESS_ISO="${INGRESS_ISO:-}"
+LOWVIRTIO="${LOWVIRTIO:-}"
 # Phase 4A stealth hardening. Default ON; set STEALTH=0 for A/B baseline runs.
 STEALTH="${STEALTH:-1}"
 
@@ -52,6 +69,10 @@ while [ $# -gt 0 ]; do
     --stealth)     STEALTH="1";       shift 1 ;;
     --no-stealth)  STEALTH="0";       shift 1 ;;
     --vars)     VARS="$2";            shift 2 ;;
+    --pcap)        PCAP="$2";         shift 2 ;;
+    --ephemeral)   EPHEMERAL="1";     shift 1 ;;
+    --ingress)     INGRESS_ISO="$2";  shift 2 ;;
+    --low-virtio)  LOWVIRTIO="1";     shift 1 ;;
     --)         shift; EXTRA_ARGS="$EXTRA_ARGS $*"; break ;;
     *) echo "boot.sh: unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -109,14 +130,46 @@ esac
 # so we can set a realistic drive serial= (shows up in the guest via
 # /sys/block/vda/serial and lsblk -o SERIAL). Non-stealth keeps the simple
 # auto-attached if=virtio form. Guest device name is /dev/vda either way.
+
+# ---- EPHEMERAL disposable overlay --------------------------------------------
+# When EPHEMERAL is set, boot a throwaway qcow2 overlay backed by a golden/base
+# image instead of writing to the real disk. All guest writes land in the
+# overlay, which is deleted when qemu exits, so every run starts from a clean
+# known-good state. Must run BEFORE DISK_ARGS is built so DISK points at the
+# overlay. qemu-img records the backing path literally, so it must be absolute.
+if [ -n "$EPHEMERAL" ]; then
+  GOLDEN_IMG="${GOLDEN:-$PROJ/vm/golden.qcow2}"
+  if [ -f "$GOLDEN_IMG" ]; then
+    BACKING="$GOLDEN_IMG"
+  else
+    BACKING="$DISK"
+  fi
+  case "$BACKING" in
+    /*) : ;;                                                   # already absolute
+    *)  BACKING="$(cd "$(dirname "$BACKING")" && pwd)/$(basename "$BACKING")" ;;
+  esac
+  OVERLAY="$(mktemp "${TMPDIR:-/tmp}/boot-ephemeral-XXXXXX")"
+  trap 'rm -f "$OVERLAY"' EXIT
+  qemu-img create -f qcow2 -b "$BACKING" -F qcow2 "$OVERLAY" >&2
+  echo "EPHEMERAL: booting throwaway overlay of $BACKING, discarded on exit" >&2
+  DISK="$OVERLAY"
+fi
+
 if [ "$STEALTH" = "1" ]; then
   DISK_SERIAL="${DISK_SERIAL:-S4EWNX0N612345}"   # realistic Samsung-style NVMe serial
   # bootindex=0 is REQUIRED here: moving off the auto-attached if=virtio form
   # changes the disk's PCI path, so the firmware's saved NVRAM boot entry no
   # longer matches and EDK2 drops to the UEFI shell. bootindex tells the
   # firmware to boot this device regardless of stale NVRAM BootOrder.
-  DISK_ARGS=(-drive "if=none,id=disk0,format=qcow2,file=$DISK"
-             -device "virtio-blk-pci,drive=disk0,serial=$DISK_SERIAL,bootindex=0")
+  if [ "$LOWVIRTIO" = "1" ]; then
+    # EXPERIMENTAL: present the main disk as NVMe instead of virtio-blk to
+    # shrink the virtio (1af4) PCI surface. Keeps serial= and bootindex=0.
+    DISK_ARGS=(-drive "if=none,id=disk0,format=qcow2,file=$DISK"
+               -device "nvme,drive=disk0,serial=$DISK_SERIAL,bootindex=0")
+  else
+    DISK_ARGS=(-drive "if=none,id=disk0,format=qcow2,file=$DISK"
+               -device "virtio-blk-pci,drive=disk0,serial=$DISK_SERIAL,bootindex=0")
+  fi
 else
   DISK_ARGS=(-drive "if=virtio,format=qcow2,file=$DISK")
 fi
@@ -152,9 +205,36 @@ fi
 # QEMU's default (52:54:00...) for A/B comparison.
 if [ "$STEALTH" = "1" ]; then
   NET_MAC="${NET_MAC:-e8:6a:64:1a:2b:3c}"
-  NET_ARGS=(-netdev "user,id=net0" -device "virtio-net-pci,netdev=net0,mac=$NET_MAC")
+  if [ "$LOWVIRTIO" = "1" ]; then
+    # EXPERIMENTAL: e1000e instead of virtio-net-pci to shrink the virtio surface.
+    NET_ARGS=(-netdev "user,id=net0" -device "e1000e,netdev=net0,mac=$NET_MAC")
+  else
+    NET_ARGS=(-netdev "user,id=net0" -device "virtio-net-pci,netdev=net0,mac=$NET_MAC")
+  fi
 else
-  NET_ARGS=(-netdev "user,id=net0" -device "virtio-net-pci,netdev=net0")
+  if [ "$LOWVIRTIO" = "1" ]; then
+    NET_ARGS=(-netdev "user,id=net0" -device "e1000e,netdev=net0")
+  else
+    NET_ARGS=(-netdev "user,id=net0" -device "virtio-net-pci,netdev=net0")
+  fi
+fi
+
+# ---- PCAP host-side traffic capture ------------------------------------------
+# When PCAP is set, attach a filter-dump to the existing netdev net0. This
+# records every frame to a host pcap file with no guest-visible device.
+PCAP_ARGS=()
+if [ -n "$PCAP" ]; then
+  PCAP_ARGS=(-object "filter-dump,id=pcap0,netdev=net0,file=$PCAP")
+fi
+
+# ---- INGRESS sample-delivery ISO ---------------------------------------------
+# When INGRESS_ISO is set, attach it as a removable, read-only USB mass-storage
+# device via an xHCI controller — a natural way to hand a sample to the guest.
+INGRESS_ARGS=()
+if [ -n "$INGRESS_ISO" ]; then
+  INGRESS_ARGS=(-device "qemu-xhci,id=xhci"
+                -drive "if=none,id=ingress0,file=$INGRESS_ISO,format=raw,readonly=on"
+                -device "usb-storage,bus=xhci.0,drive=ingress0,removable=on")
 fi
 
 # virtio-rng: give the guest a fast entropy source so first-boot operations that
@@ -209,7 +289,9 @@ CMD=(
   ${ACPI_ARGS[@]+"${ACPI_ARGS[@]}"}
   ${SMBIOS_ARGS[@]+"${SMBIOS_ARGS[@]}"}
   "${NET_ARGS[@]}"
+  ${PCAP_ARGS[@]+"${PCAP_ARGS[@]}"}
   "${RNG_ARGS[@]}"
+  ${INGRESS_ARGS[@]+"${INGRESS_ARGS[@]}"}
 )
 if [ -n "$EXTRA_ARGS" ]; then
   # shellcheck disable=SC2206
@@ -219,4 +301,10 @@ fi
 echo "boot.sh: launching:" >&2
 printf '  %q' "${CMD[@]}" >&2; echo >&2
 
-exec "${CMD[@]}"
+if [ -n "$EPHEMERAL" ]; then
+  # Do NOT exec: keep this shell alive so the EXIT trap can delete the throwaway
+  # overlay after qemu terminates (exec would replace the shell and skip it).
+  "${CMD[@]}"
+else
+  exec "${CMD[@]}"
+fi
