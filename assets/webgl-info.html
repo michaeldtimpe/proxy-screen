@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WEBGL-INFO</title>
+<style>
+  html,body{margin:0;padding:0;background:#0b1020;color:#eaf2ff;
+    font-family:"DejaVu Sans Mono",monospace;}
+  #wrap{padding:28px 34px;}
+  h1{font-size:30px;margin:0 0 18px;color:#8fd3ff;letter-spacing:1px;}
+  .lbl{font-size:26px;color:#9fb3d0;margin-top:18px;}
+  .val{font-size:44px;font-weight:700;line-height:1.15;color:#b7ffcf;
+    word-break:break-word;background:#11182f;padding:14px 18px;border-radius:8px;
+    border:2px solid #29406e;}
+  #renderer .val{color:#ffe58a;}
+  .tag{font-size:22px;color:#6f86a8;margin-top:26px;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>WEBGL RENDERER PROBE</h1>
+  <div id="renderer">
+    <div class="lbl">RENDERER:</div>
+    <div class="val" id="rv">(reading...)</div>
+  </div>
+  <div id="vendor">
+    <div class="lbl">VENDOR:</div>
+    <div class="val" id="vv">(reading...)</div>
+  </div>
+  <div class="tag" id="tag"></div>
+</div>
+<script>
+(function(){
+  function read(){
+    var out={renderer:"NO_WEBGL", vendor:"NO_WEBGL"};
+    try{
+      var c=document.createElement("canvas");
+      var gl=c.getContext("webgl")||c.getContext("experimental-webgl");
+      if(!gl){return out;}
+      var dbg=gl.getExtension("WEBGL_debug_renderer_info");
+      if(dbg){
+        out.renderer=gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+        out.vendor=gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
+      }else{
+        out.renderer=gl.getParameter(gl.RENDERER)+" (no debug ext)";
+        out.vendor=gl.getParameter(gl.VENDOR)+" (no debug ext)";
+      }
+    }catch(e){out.renderer="ERR:"+e.message;}
+    return out;
+  }
+  var r=read();
+  document.getElementById("rv").textContent=r.renderer;
+  document.getElementById("vv").textContent=r.vendor;
+  document.getElementById("tag").textContent="probed @ "+new Date().toISOString();
+  // Put values in the title so a screenshot/OCR or headless dump can read them.
+  document.title="RENDERER="+r.renderer+" | VENDOR="+r.vendor;
+})();
+</script>
+</body>
+</html>

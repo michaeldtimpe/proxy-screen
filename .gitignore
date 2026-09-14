@@ -1,0 +1,35 @@
+# vm/ holds guest disk images, EDK2 firmware varstores, and the cloud-init
+# seed ISO. These are large (guest.qcow2 alone is multiple GB) and are
+# generated/downloaded artifacts, not source -- never commit them.
+vm/*.qcow2
+vm/*.fd
+vm/*.iso
+
+# Python venv used by pipeline.sh/pipeline.py (imagehash + pillow). Recreated
+# on demand by `make setup` or pipeline.sh itself.
+.venv/
+
+# Captured sessions: frames/, analysis/, and selftest-*.txt reports. Generated
+# output, not source, and can get large.
+sessions/
+
+# Runtime unix sockets created by a running guest.
+*.sock
+
+# Stray screenshot/proof PNGs left at the project root by manual capture runs
+# (e.g. shot.png, desktop.png, webgl-proof.png). Keep assets/ (source, not
+# generated) explicitly un-ignored.
+/*.png
+!assets/
+!assets/*.png
+
+# Misc runtime logs left at the root by boot.sh / serial capture.
+serial.log
+boot-run.log
+boot.out
+
+# Per-install machine identity (stable UUID) — generated on first boot by
+# boot.sh; must be unique per install, so never commit it.
+vm/smbios-uuid
+# Download/build logs left under vm/.
+vm/*.log

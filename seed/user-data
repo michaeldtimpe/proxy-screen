@@ -1,0 +1,21 @@
+#cloud-config
+users:
+  - name: analyst
+    groups: [sudo]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    plain_text_passwd: analyst
+chpasswd:
+  expire: false
+  users:
+    - name: analyst
+      password: analyst
+      type: text
+ssh_pwauth: false
+# NOTE: serial-getty@ttyAMA0 is auto-created by systemd's getty-generator
+# because console=ttyAMA0 is on the kernel cmdline, so we do NOT enable it
+# ourselves (doing so with --now mid-boot deadlocks the console).
+runcmd:
+  - [ touch, /var/lib/cloud-init-done ]
+final_message: "CLOUD_INIT_FINAL_MARKER cloud-init done after $UPTIME seconds"
