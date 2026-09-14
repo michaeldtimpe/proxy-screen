@@ -33,3 +33,11 @@ boot.out
 vm/smbios-uuid
 # Download/build logs left under vm/.
 vm/*.log
+
+# Host-side packet captures (boot.sh PCAP=) and redirect-chain proxy logs
+# left at the project root by ad hoc/manual runs. Normal proxy.sh runs
+# already write under sessions/<name>/proxy/ (covered by the sessions/
+# ignore above); these cover stray root-level copies.
+*.pcap
+/redirects.jsonl
+/redirects.txt

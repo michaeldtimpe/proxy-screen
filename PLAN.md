@@ -139,3 +139,20 @@ last.
 **Discipline carried from the delegate skill.** One subsystem per agent; every implementer prompt caps
 exploration and requires pasting real `git diff --stat` and command output; a report is never accepted
 as done without checking the diff; two consecutive fabrications and the rest is done directly.
+
+---
+
+## 8. Close-out (2026-09-14)
+
+All planned analysis-workflow features are implemented and documented in
+README.md: clean-state overlays (`snapshot.sh`, `boot.sh EPHEMERAL=`/
+`GOLDEN=`), passive pcap + active redirect-proxy network capture
+(`boot.sh PCAP=`, `proxy.sh` + `bin/redirect-log.py` +
+`bin/guest-proxy-setup.sh`), sample ingress (`ingress.sh` + `INGRESS_ISO=`),
+interval screen capture (`record.sh`), per-session provenance
+(`bin/session-meta.py`, surfaced in `analysis/index.html`), WebGL identity
+made consistent with the arm64/SMBIOS identity (`bin/guest-webgl-spoof.sh`,
+FD690/freedreno replacing the old Intel string), and a stable per-install
+SMBIOS UUID (`vm/smbios-uuid`). The repo has been reviewed and prepared for
+public release (README overhaul, LICENSE, SECURITY.md, `.gitignore`
+coverage for the new runtime artifacts).
