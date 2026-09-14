@@ -432,7 +432,7 @@ capture.sh            Non-destructive on-demand screendump (wraps bin/capture.py
 record.sh             Interval capture loop wrapping capture.sh + session provenance
 pipeline.sh           Offline review pipeline for one session (wraps bin/*.py)
 proxy.sh              Host-side launcher for the redirect-chain MITM proxy (mitmdump)
-Makefile              make targets wrapping the above (help/setup/boot/capture/review/selftest/clean)
+Makefile              make targets wrapping the above (help/setup/boot/capture/record/golden/review/selftest/clean)
 bin/
   capture.py           QMP screendump, no quit sent (used by capture.sh)
   qmpshot.py           DESTRUCTIVE one-shot QMP screendump + quit (legacy/manual use only)

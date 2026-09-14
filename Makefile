@@ -5,19 +5,29 @@
 # full flag/env-var reference of the scripts this wraps.
 #
 # Vars you can pass on the command line:
-#   SESSION=<name>   session name for `make capture` / `make review`
+#   SESSION=<name>   session name for `make capture` / `make review` / `make record`
 #                    (capture.sh defaults to a UTC timestamp if unset;
 #                     pipeline.sh defaults to the most recently modified
-#                     session under sessions/ if unset)
+#                     session under sessions/ if unset; record REQUIRES it)
+#   INTERVAL=<secs>  seconds between frames for `make record` (default: script's 5)
+#   DURATION=<secs>  total run time for `make record` (default: until Ctrl-C)
+#   NOTE=<text>      provenance note recorded by `make record`
+#   FROM=<disk>      source disk for `make golden` (default: vm/guest.qcow2)
+#   FORCE=1          let `make golden` overwrite an existing golden
 #   SERIAL=<sock>    serial unix socket for `make selftest`
 #                    (default: ./serial.sock)
 #   LABEL=<text>     label for `make selftest`
 
-.PHONY: help setup boot boot-gui capture review selftest clean
+.PHONY: help setup boot boot-gui capture record golden review selftest clean
 
-SESSION ?=
-SERIAL  ?= serial.sock
-LABEL   ?= (unlabeled)
+SESSION  ?=
+INTERVAL ?=
+DURATION ?=
+NOTE     ?=
+FROM     ?=
+FORCE    ?=
+SERIAL   ?= serial.sock
+LABEL    ?= (unlabeled)
 
 help:
 	@echo "proxy-screen -- host-side VM screen-capture tool"
@@ -27,6 +37,8 @@ help:
 	@echo "  make boot                Headless guest boot (./boot.sh)"
 	@echo "  make boot-gui            Guest boot with a visible window (DISPLAY_BACKEND=cocoa)"
 	@echo "  make capture             Grab one frame from a running guest (SESSION=name optional)"
+	@echo "  make record              Interval capture loop (SESSION=name required; INTERVAL/DURATION/NOTE optional)"
+	@echo "  make golden              Snapshot vm/guest.qcow2 -> read-only vm/golden.qcow2 for EPHEMERAL boots (FORCE=1 to overwrite)"
 	@echo "  make review              Run the OCR/dedupe/contact-sheet pipeline (SESSION=name optional)"
 	@echo "  make selftest            Run the VM-detection self-test (SERIAL=sock LABEL=text)"
 	@echo "  make clean               Remove qmp.sock/serial.sock and stray root *.png (not vm/, not sessions/)"
@@ -66,6 +78,16 @@ boot-gui:
 
 capture:
 	./capture.sh $(if $(SESSION),--session $(SESSION))
+
+record:
+	@if [ -z "$(SESSION)" ]; then echo "make record: SESSION=<name> is required" >&2; exit 2; fi
+	./record.sh --session $(SESSION) \
+		$(if $(INTERVAL),--interval $(INTERVAL)) \
+		$(if $(DURATION),--duration $(DURATION)) \
+		$(if $(NOTE),--note "$(NOTE)")
+
+golden:
+	./snapshot.sh golden $(if $(FROM),--from $(FROM)) $(if $(FORCE),--force)
 
 review:
 	./pipeline.sh $(if $(SESSION),--session $(SESSION))
